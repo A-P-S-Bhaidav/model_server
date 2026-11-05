@@ -1,0 +1,48 @@
+name: KServe client regression checks
+
+on:
+  push:
+    branches: [verify/kserve-client-regressions]
+
+permissions:
+  contents: read
+
+jobs:
+  client-regression:
+    if: github.repository == 'A-P-S-Bhaidav/model_server'
+    name: ${{ matrix.change.name }} (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+        change:
+          - name: input-dtype
+            sha: 23f2edfa44d8a71437bfd3a2ca47de50a06da4ab
+            test: test_kserve_input_dtypes.py
+            mode: dtype
+          - name: http-async-results
+            sha: 851d68e43068d8618d2ecb9fc7fe3804c104a3c0
+            test: test_kserve_http_async_results.py
+            mode: async
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: validation-source
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ matrix.change.sha }}
+          path: candidate
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.11'
+      - name: Install supported clients and pinned test dependencies
+        run: python -m pip install 'tritonclient[http,grpc]==2.45.0' numpy==2.4.6 pytest==9.2.0
+      - name: Run focused regression cases
+        working-directory: candidate
+        run: python -m pytest tests/python/${{ matrix.change.test }} -q
+      - name: Exercise real clients against local protocol fixtures
+        run: python validation-source/.github/scripts/kserve_client_protocol_fixture.py --repository candidate --mode ${{ matrix.change.mode }}
