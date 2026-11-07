@@ -1,0 +1,67 @@
+# Copyright (c) 2026 Intel Corporation
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Speech benchmark regression checks
+
+on:
+  push:
+    branches: [verify/audio-benchmark-report]
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    if: github.repository == 'A-P-S-Bhaidav/model_server'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.11'
+      - name: Install benchmark and test dependencies
+        run: python -m pip install -r demos/benchmark/v3/requirements.txt aiohttp==3.14.5 pytest==9.2.0
+      - name: Verify the regression on unchanged upstream
+        env:
+          UPSTREAM_BASE: 6557b9bd88ab78f2a71f4c843ada996083b3946b
+        run: |
+          benchmark=demos/benchmark/v3/benchmark.py
+          git show "$UPSTREAM_BASE:$benchmark" > "$benchmark"
+          report="$RUNNER_TEMP/audio-benchmark-baseline.xml"
+          test_status=0
+          python -m pytest demos/benchmark/v3/test_benchmark.py -q --tb=short --junitxml "$report" || test_status=$?
+          git restore -- "$benchmark"
+          test "$test_status" -eq 1
+          python - "$report" <<'PY'
+          from pathlib import Path
+          import sys
+          from xml.etree import ElementTree
+
+          cases = list(ElementTree.fromstring(Path(sys.argv[1]).read_text()).iter("testcase"))
+          failures = [case.find("failure") for case in cases if case.find("failure") is not None]
+          assert len(cases) == 6 and len(failures) == 4
+          assert all("json.decoder.JSONDecodeError: Expecting value" in (failure.text or "") for failure in failures)
+          PY
+      - name: Verify the fixed benchmark and record the source blobs
+        run: |
+          git rev-parse HEAD:demos/benchmark/v3/benchmark.py HEAD:demos/benchmark/v3/test_benchmark.py
+          python -m pytest demos/benchmark/v3/test_benchmark.py -q --tb=short
+          python -m py_compile demos/benchmark/v3/benchmark.py demos/benchmark/v3/test_benchmark.py
+          git diff --check
+      - name: Run repository SDL checks
+        run: make sdl-check
