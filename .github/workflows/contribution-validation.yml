@@ -1,0 +1,100 @@
+# Copyright (c) 2026 Intel Corporation
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Model Server contribution validation
+
+on:
+  push:
+    branches: [verify/model-server-contributions-20261114]
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    if: github.repository == 'A-P-S-Bhaidav/model_server'
+    name: ${{ matrix.group }} (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: export
+            os: ubuntu-24.04
+          - group: export
+            os: windows-2022
+          - group: clients
+            os: ubuntu-24.04
+          - group: speech
+            os: ubuntu-24.04
+          - group: embeddings
+            os: ubuntu-24.04
+    env:
+      HF_HUB_OFFLINE: '1'
+      HF_DATASETS_OFFLINE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.11'
+      - name: Install scoped test dependencies
+        shell: bash
+        env:
+          TEST_GROUP: ${{ matrix.group }}
+        run: |
+          case "$TEST_GROUP" in
+            export) python -m pip install pytest==9.2.0 Jinja2==3.1.6 huggingface_hub==2.4.0 ;;
+            clients) python -m pip install pytest==9.2.0 'tritonclient[http,grpc]==2.45.0' numpy==2.4.6 ;;
+            speech) python -m pip install -r demos/benchmark/v3/requirements.txt transformers==5.0.0 aiohttp==3.14.5 pytest==9.2.0 ;;
+            embeddings) python -m pip install pytest==9.2.0 openai==3.48.0 numpy==1.26.4 ;;
+          esac
+      - name: Run existing regression tests
+        shell: bash
+        env:
+          TEST_GROUP: ${{ matrix.group }}
+        run: |
+          case "$TEST_GROUP" in
+            export) python -m pytest -q -p no:cacheprovider tests/python/test_export_draft_model.py tests/python/test_export_image_generation.py ;;
+            clients) python -m pytest -q -p no:cacheprovider tests/python/test_kserve_input_dtypes.py tests/python/test_kserve_http_async_results.py ;;
+            speech) python -m pytest -q -p no:cacheprovider demos/benchmark/v3/test_benchmark.py ;;
+            embeddings) python -m pytest -q -p no:cacheprovider demos/embeddings/test_compare_results.py ;;
+          esac
+  repository-checks:
+    if: github.repository == 'A-P-S-Bhaidav/model_server'
+    name: Repository style and SDL checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.11'
+      - name: Verify the combined tree and its changed files
+        env:
+          UPSTREAM_BASE: 3dfaf2b9df2eb15ccc7f54adffe90699eaac8b50
+        run: |
+          git rev-parse HEAD^ 'HEAD^^{tree}'
+          git -c core.whitespace=cr-at-eol diff --check "$UPSTREAM_BASE" HEAD^
+          git diff --name-only -z "$UPSTREAM_BASE" HEAD^ | xargs -0 python -m py_compile
+      - name: Run repository style checks
+        run: make style
+      - name: Run repository SDL checks
+        if: success() || failure()
+        run: make sdl-check
