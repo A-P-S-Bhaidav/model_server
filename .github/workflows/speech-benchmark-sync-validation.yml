@@ -1,0 +1,31 @@
+name: Speech benchmark validation
+
+on:
+  push:
+    branches: [verify/speech-benchmark-upstream-sync]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    if: github.repository == 'A-P-S-Bhaidav/model_server'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.11'
+      - name: Install benchmark requirements
+        run: python -m pip install -r demos/benchmark/openai/requirements.txt
+      - name: Verify the benchmark and record the tested files
+        working-directory: demos/benchmark/openai
+        run: |
+          git rev-parse HEAD:demos/benchmark/openai/benchmark.py HEAD:demos/benchmark/openai/test_benchmark.py
+          python -m unittest -v test_benchmark
+          python -m py_compile benchmark.py test_benchmark.py
+      - name: Run the repository SDL target
+        run: make sdl-check
