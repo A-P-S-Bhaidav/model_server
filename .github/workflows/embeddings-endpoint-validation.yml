@@ -1,0 +1,37 @@
+name: Embeddings endpoint validation
+
+on:
+  push:
+    branches: [verify/embeddings-comparison-main-sync-20261120]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    if: github.repository == 'A-P-S-Bhaidav/model_server'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - name: Install loopback test dependencies
+        run: python -m pip install openai==3.48.0 numpy==2.4.6 pytest==9.2.0
+      - name: Verify the embeddings CLI and record the tested revision
+        env:
+          NO_PROXY: 127.0.0.1
+          no_proxy: 127.0.0.1
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          git rev-parse HEAD^ HEAD:demos/embeddings/compare_results.py HEAD:demos/embeddings/test_compare_results.py
+          python -m pytest -q -p no:cacheprovider demos/embeddings/test_compare_results.py
+          python -m py_compile demos/embeddings/compare_results.py demos/embeddings/test_compare_results.py
+      - name: Run repository style checks
+        run: make style
+      - name: Run repository SDL checks
+        if: success() || failure()
+        run: make sdl-check
