@@ -22,12 +22,11 @@ jobs:
       - name: Install loopback test dependencies
         run: python -m pip install openai==3.48.0 numpy==2.4.6 pytest==9.2.0
       - name: Verify the embeddings CLI and record the tested revision
-        env:
-          NO_PROXY: 127.0.0.1
-          no_proxy: 127.0.0.1
-          PYTHONDONTWRITEBYTECODE: '1'
         run: |
-          git rev-parse HEAD^ HEAD:demos/embeddings/compare_results.py HEAD:demos/embeddings/test_compare_results.py
+          export NO_PROXY=127.0.0.1 no_proxy=127.0.0.1 PYTHONDONTWRITEBYTECODE=1
+          git rev-parse HEAD HEAD:demos/embeddings/compare_results.py HEAD:demos/embeddings/test_compare_results.py
+          test "$(git rev-parse HEAD:demos/embeddings/compare_results.py)" = 8cc49f385242b40eeee16948a7393ed35b22f5e7
+          test "$(git rev-parse HEAD:demos/embeddings/test_compare_results.py)" = 97fef58073994842eb7590a24439bf79ad706921
           python -m pytest -q -p no:cacheprovider demos/embeddings/test_compare_results.py
           python -m py_compile demos/embeddings/compare_results.py demos/embeddings/test_compare_results.py
       - name: Run repository style checks
