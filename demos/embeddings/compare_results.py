@@ -23,8 +23,8 @@ import argparse
 from urllib.parse import urlsplit
 
 parser = argparse.ArgumentParser(description='Compare embeddings responses from HF transformers, OVSentenceTransformer and OVMS')
-parser.add_argument('--service_url', required=False, default='http://localhost:8000/v3/embeddings',
-                    help='Embeddings endpoint or API base URL. Default: http://localhost:8000/v3/embeddings', dest='service_url')
+parser.add_argument('--service_url', required=False, default='http://localhost:8000/v1',
+                    help='API base URL or embeddings endpoint. Default: http://localhost:8000/v1', dest='service_url')
 parser.add_argument('--model_name', default='Alibaba-NLP/gte-large-en-v1.5', help='Model name to query. default: Alibaba-NLP/gte-large-en-v1.5',
                     dest='model_name')
 parser.add_argument('--hf_model_name', default='', help='HuggingFaces model name. default: equal to --model_name',

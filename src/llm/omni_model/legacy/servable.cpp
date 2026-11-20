@@ -15,6 +15,7 @@
 //*****************************************************************************
 
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <stdexcept>
@@ -59,6 +60,9 @@ absl::Status OmniModelLegacyServable::validateEndpoint(Endpoint endpoint) const 
     if (endpoint == Endpoint::COMPLETIONS) {
         return absl::InvalidArgumentError("Omni Servable does not support the /completions endpoint. Use /chat/completions or /responses.");
     }
+    if (endpoint == Endpoint::TRANSCRIPTIONS) {
+        return absl::InvalidArgumentError("Omni Servable does not support audio transcriptions");
+    }
     return absl::OkStatus();
 }
 
@@ -99,7 +103,7 @@ absl::Status OmniModelLegacyServable::parseRequest(std::shared_ptr<GenAiServable
     }
     auto& config = ovms::Config::instance();
 
-    auto status = executionContext->apiHandler->parseRequest(getProperties()->maxTokensLimit, getProperties()->bestOfLimit, getProperties()->maxModelLength, config.getServerSettings().allowedLocalMediaPath, config.getServerSettings().allowedMediaDomains);
+    auto status = executionContext->apiHandler->parseRequest(getProperties()->maxTokensLimit, getProperties()->bestOfLimit, getProperties()->maxModelLength, config.getServerSettings().allowedLocalMediaPath, config.getServerSettings().allowedMediaDomains, getProperties()->inputProcessorContext.config.visionInputConfig->videoMaxFrames);
     if (!status.ok()) {
         SPDLOG_LOGGER_DEBUG(llm_calculator_logger, "Failed to parse request: {}", status.message());
         return status;
@@ -176,18 +180,9 @@ void OmniModelLegacyServable::initializeTextStreamer(std::shared_ptr<GenAiServab
             if (ctx.clientDisconnected.load()) {
                 return ov::genai::StreamingStatus::CANCEL;
             }
-            // Convert float32 PCM to int16 and base64 encode
             const float* pcm = audio_chunk.data<const float>();
             const size_t count = audio_chunk.get_size();
-            std::vector<int16_t> pcm16(count);
-            for (size_t i = 0; i < count; i++) {
-                float s = pcm[i];
-                if (s > 1.0f)
-                    s = 1.0f;
-                if (s < -1.0f)
-                    s = -1.0f;
-                pcm16[i] = static_cast<int16_t>(s * 32767.0f);
-            }
+            auto pcm16 = ovms::audio_utils::convertWaveformToPcm16(count, pcm);
             std::string b64 = absl::Base64Escape(
                 std::string_view(reinterpret_cast<const char*>(pcm16.data()), pcm16.size() * sizeof(int16_t)));
 
@@ -251,23 +246,14 @@ absl::Status OmniModelLegacyServable::prepareCompleteResponse(std::shared_ptr<Ge
         std::string audioBase64;
         if (omniExecutionContext->audioFormat == OpenAIRequest::AudioFormat::WAV) {
             constexpr uint32_t OMNI_SAMPLE_RATE = 24000;
-            constexpr uint16_t BITS_PER_SAMPLE = 32;
+            constexpr uint16_t OMNI_BITS_PER_SAMPLE = 32;
             void* wavData = nullptr;
             size_t wavSize = 0;
-            ovms::audio_utils::prepareAudioOutput(&wavData, wavSize, OMNI_SAMPLE_RATE, BITS_PER_SAMPLE, sampleCount, pcmData);
+            ovms::audio_utils::prepareAudioOutput(&wavData, wavSize, OMNI_SAMPLE_RATE, OMNI_BITS_PER_SAMPLE, sampleCount, pcmData);
             audioBase64 = absl::Base64Escape(std::string_view(reinterpret_cast<const char*>(wavData), wavSize));
-            free(wavData);
+            std::free(wavData);
         } else {
-            // pcm16: convert float32 to int16
-            std::vector<int16_t> pcm16(sampleCount);
-            for (size_t i = 0; i < sampleCount; i++) {
-                float sample = pcmData[i];
-                if (sample > 1.0f)
-                    sample = 1.0f;
-                if (sample < -1.0f)
-                    sample = -1.0f;
-                pcm16[i] = static_cast<int16_t>(sample * 32767.0f);
-            }
+            auto pcm16 = ovms::audio_utils::convertWaveformToPcm16(sampleCount, pcmData);
             audioBase64 = absl::Base64Escape(std::string_view(reinterpret_cast<const char*>(pcm16.data()), pcm16.size() * sizeof(int16_t)));
         }
 

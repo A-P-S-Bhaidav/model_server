@@ -26,6 +26,8 @@ import pytest
 @pytest.mark.parametrize(
     ("service_path", "request_path"),
     [
+        ("/v1", "/v1/embeddings"),
+        ("/v1/embeddings", "/v1/embeddings"),
         ("/v3/embeddings", "/v3/embeddings"),
         ("/proxy/v3/embeddings/", "/proxy/v3/embeddings"),
         ("/proxy/v3/", "/proxy/v3/embeddings"),
